@@ -1,0 +1,489 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Riparia Interactive Map</title>
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css">
+<!-- Carlito is a free font that looks the same as Calibri; it works on every device -->
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Carlito:wght@400;700&display=swap">
+<style>
+  :root { --bg:#1b1e23; --panel:#25292f; --line:#363b43; --text:#e8eaed; --muted:#9aa0a6; --accent:#5865f2; }
+  * { box-sizing: border-box; }
+  html, body { height:100%; margin:0; font-family:Carlito,Calibri,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; background:var(--bg); color:var(--text); }
+  body { display:flex; }
+  #side { width:280px; flex:none; background:var(--panel); border-right:1px solid var(--line); overflow-y:auto; padding:12px; font-size:14px; }
+  #side.hidden { display:none; }
+  #mapwrap { flex:1; position:relative; min-width:0; }
+  #map { height:100%; background:var(--bg); }
+  #side h1 { font-size:17px; margin:0 0 10px; }
+  #side h2 { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin:16px 0 6px; }
+  .grid { display:grid; grid-template-columns:1fr 1fr; gap:6px; }
+  .grid button, .chip { display:flex; align-items:center; gap:6px; padding:6px 8px; border-radius:8px; border:1px solid var(--line); background:#2f343c; color:var(--text); cursor:pointer; font-size:13px; text-align:left; }
+  .grid button:hover, .chip:hover { border-color:var(--accent); }
+  .grid button.on { background:var(--accent); border-color:var(--accent); }
+  .chip.off { opacity:.35; }
+  .chips { display:flex; flex-wrap:wrap; gap:5px; }
+  .chip { padding:3px 8px; border-radius:999px; }
+  .chip small { color:var(--muted); }
+  .mini { display:inline-flex; width:22px; height:22px; align-items:center; justify-content:center; flex:none; }
+  .mini img, .pin img { width:100%; height:100%; object-fit:contain; }
+  .pin { width:30px; height:30px; display:flex; align-items:center; justify-content:center; filter:drop-shadow(0 1px 2px #000); }
+  .pinemoji { font-size:24px; line-height:1; }
+  .dot { display:inline-block; border-radius:50%; border:2px solid #fff; box-shadow:0 0 3px #000; }
+  #search { width:100%; padding:7px 9px; border-radius:8px; border:1px solid var(--line); background:#2f343c; color:var(--text); }
+  #list { list-style:none; margin:8px 0 0; padding:0; max-height:300px; overflow-y:auto; }
+  #list li { display:flex; gap:8px; align-items:center; padding:5px 6px; border-radius:6px; cursor:pointer; }
+  #list li:hover { background:#333941; }
+  #list .t { flex:1; min-width:0; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  #list .k { color:var(--muted); font-size:11px; }
+  .link { background:none; border:0; color:var(--accent); cursor:pointer; padding:0; font-size:12px; }
+  #banner { position:absolute; z-index:1000; top:10px; left:50%; transform:translateX(-50%); background:var(--accent); color:#fff; padding:7px 14px; border-radius:999px; font-size:13px; display:none; box-shadow:0 2px 8px #0008; }
+  .leaflet-container { font-family:Carlito,Calibri,'Segoe UI',Roboto,Arial,sans-serif; font-size:15px; }
+  #namesBtn { position:absolute; z-index:1000; top:10px; left:145px; padding:7px 11px; border-radius:8px; border:0; cursor:pointer; background:#fff; font:inherit; }
+  #namesBtn.on { background:var(--accent); color:#fff; }
+  .poi { transform:translate(-50%,-50%); white-space:nowrap; font-weight:700; letter-spacing:.02em; color:#fff;
+         font-size:var(--lbl,14px); text-shadow:0 0 3px #000,0 0 3px #000,0 0 5px #000,1px 1px 2px #000; pointer-events:none; }
+  #toggle { position:absolute; z-index:1000; top:10px; left:50px; padding:7px 11px; border-radius:8px; border:0; cursor:pointer; background:#fff; }
+  #status { position:absolute; z-index:1000; bottom:8px; left:8px; background:#000a; color:#fff; padding:4px 8px; border-radius:6px; font-size:12px; }
+  .popup { min-width:200px; }
+  .popup input[type=text], .popup textarea { width:100%; margin:4px 0; padding:5px; }
+  .popup button { margin-top:4px; padding:6px 10px; cursor:pointer; }
+  .placing { cursor:crosshair !important; }
+  @media (max-width:640px) { #side { position:absolute; z-index:1100; height:100%; width:85%; } }
+</style>
+</head>
+<body>
+<div id="side">
+  <h1>🗺️ Riparia Map</h1>
+
+  <div id="authBox"></div>
+
+  <div id="addSection">
+  <h2>Add a marker</h2>
+  <div class="grid" id="palette"></div>
+  <div style="color:var(--muted);font-size:12px;margin-top:6px">Pick a type, then click the map. Click the type again (or press Esc) to stop. Drag a marker to move it; click it to edit or delete.</div>
+  </div>
+
+  <h2>Show / hide <button class="link" id="allOn">all</button> · <button class="link" id="allOff">none</button></h2>
+  <div class="chips" id="legend"></div>
+
+  <h2>Save &amp; share</h2>
+  <div class="grid">
+    <button id="exportBtn">💾 Export</button>
+    <button id="importBtn">📂 Import</button>
+    <button id="linkBtn">🔗 Copy link</button>
+  </div>
+  <input type="file" id="importFile" accept=".json,application/json" hidden>
+  <div id="shareNote" style="color:var(--muted);font-size:12px;margin-top:6px"></div>
+
+  <h2>Markers</h2>
+  <input id="search" placeholder="Search markers…">
+  <ul id="list"></ul>
+</div>
+
+<div id="mapwrap">
+  <button id="toggle">☰ Menu</button>
+  <button id="namesBtn">🏷 Names</button>
+  <div id="banner"></div>
+  <div id="status">Loading…</div>
+  <div id="map"></div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script>
+/* ============ SETTINGS: edit these ============ */
+const MAP_IMAGE = "riparia.jpg";
+const DB_URL = "";            // Firebase Realtime Database URL, e.g. "https://my-project-default-rtdb.firebaseio.com"
+const FIREBASE_API_KEY = "";  // Firebase "Web API key" – lets the owner sign in. Leave empty until you set up login.
+const REFRESH_SECONDS = 15;
+
+/* Place names shown on the map. x and y are positions as a fraction of the map
+   (x: 0 = left edge, 1 = right edge;  y: 0 = top edge, 1 = bottom edge).
+   Nudge the numbers to move a name, or add/remove lines. */
+const POIS = [
+  { n:"Dry Fang Canyon", x:0.1365, y:0.1593 }, { n:"Tallbrush Coasts", x:0.443, y:0.1958 },
+  { n:"Volcano Islands", x:0.6366, y:0.2506 }, { n:"Coastal Bluffs", x:0.7987, y:0.1958 },
+  { n:"Abyssal Depths", x:0.9466, y:0.0862 },    { n:"Big Tree Overlook", x:0.4605, y:0.4296 },
+  { n:"Palm Island", x:0.9114, y:0.3784 },      { n:"Black Fern Hills", x:0.0908, y:0.488 },
+  { n:"Cedrus Forest", x:0.3197, y:0.488 },    { n:"Twisted Forest", x:0.6719, y:0.488 },
+  { n:"Stonebed Shoal", x:0.9255, y:0.499 },   { n:"Mudflats", x:0.8127, y:0.5626 },
+  { n:"Stillwater Bog", x:0.5063, y:0.5881 },   { n:"Coastland Swamp", x:0.7071, y:0.7072 },
+  { n:"Cliff Edge Falls", x:0.2669, y:0.7255 }, { n:"Crag Bluffs", x:0.517, y:0.7437 },
+  { n:"East Passage", x:0.9185, y:0.7218 },     { n:"Wind Tunnels", x:0.3619, y:0.8132 },
+  { n:"Redwoods", x:0.1083, y:0.8913 },         { n:"Hollow Hills", x:0.5134, y:0.941 },
+  { n:"Wollemi Forest", x:0.848, y:0.9337 }
+];
+
+/* Marker types. "img" is optional: put a picture file path (e.g. "icons/wood.png")
+   and it is used instead of the emoji. If the file is missing, the emoji is shown. */
+const TYPES = {
+  wood:     { label:"Wood",     emoji:"🪵", group:"Resources", img:"" },
+  stone:    { label:"Stone",    emoji:"🪨", group:"Resources", img:"" },
+  ore:      { label:"Ore",      emoji:"⛏️", group:"Resources", img:"" },
+  crystal:  { label:"Crystal",  emoji:"💎", group:"Resources", img:"" },
+  fish:     { label:"Fish",     emoji:"🐟", group:"Resources", img:"" },
+  plants:   { label:"Plants",   emoji:"🌿", group:"Resources", img:"" },
+  carcass:  { label:"Carcass",  emoji:"🍖", group:"Resources", img:"" },
+  nest:     { label:"Nest",     emoji:"🪺", group:"Places",    img:"" },
+  water:    { label:"Water",    emoji:"💧", group:"Places",    img:"" },
+  cave:     { label:"Cave",     emoji:"🕳️", group:"Places",    img:"" },
+  landmark: { label:"Landmark", emoji:"📍", group:"Places",    img:"" },
+  danger:   { label:"Danger",   emoji:"⚠️", group:"Other",     img:"" },
+  dot:      { label:"Dot",      emoji:"●",  group:"Other",     img:"" }   // generic dot, color is chosen per marker
+};
+/* ============================================== */
+
+const $ = id => document.getElementById(id);
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const okColor = c => /^#[0-9a-f]{6}$/i.test(c) ? c : "#ff3b30";
+let lastColor = localStorage.getItem("riparia_color") || "#ff3b30";
+
+function iconHTML(key, color, size) {
+  const t = TYPES[key] || TYPES.dot;
+  if (key === "dot" || !TYPES[key]) { const d = Math.round(size * 0.62); return `<span class="dot" style="background:${okColor(color)};width:${d}px;height:${d}px"></span>`; }
+  if (t.img) return `<img src="${esc(t.img)}" alt="" onerror="this.outerHTML='<span class=pinemoji>${t.emoji}</span>'">`;
+  return `<span class="pinemoji" style="font-size:${Math.round(size * 0.85)}px">${t.emoji}</span>`;
+}
+
+/* ---- owner login (Firebase Authentication, email + password) ---- */
+let session = JSON.parse(localStorage.getItem("riparia_session") || "null");   // { email, id, refresh, exp }
+const saveSession = () => session ? localStorage.setItem("riparia_session", JSON.stringify(session)) : localStorage.removeItem("riparia_session");
+const canEdit = () => !DB_URL || !!session;      // no database yet = local preview, editing allowed
+async function getToken() {
+  if (!session) return null;
+  if (Date.now() > session.exp - 60000) {
+    const r = await fetch("https://securetoken.googleapis.com/v1/token?key=" + FIREBASE_API_KEY, { method:"POST",
+      headers:{ "Content-Type":"application/x-www-form-urlencoded" }, body:"grant_type=refresh_token&refresh_token=" + encodeURIComponent(session.refresh) });
+    const j = await r.json();
+    if (!j.id_token) { session = null; saveSession(); applyPermissions(); throw new Error("Session expired"); }
+    session = { ...session, id:j.id_token, refresh:j.refresh_token, exp:Date.now() + (+j.expires_in) * 1000 }; saveSession();
+  }
+  return session.id;
+}
+async function dbUrl(path) { const t = await getToken(); return DB_URL + path + ".json" + (t ? "?auth=" + t : ""); }
+const ok = r => { if (!r.ok) throw new Error("Not allowed"); return r; };
+
+/* ---- storage: Firebase if configured, else this browser only ---- */
+const store = {
+  async list() {
+    if (!DB_URL) return JSON.parse(localStorage.getItem("riparia") || "{}");
+    const r = await fetch(DB_URL + "/markers.json"); return (await r.json()) || {};
+  },
+  async add(m) {
+    if (!DB_URL) { const d = await this.list(); const id = "m" + Date.now() + Math.random().toString(36).slice(2, 6); d[id] = m; localStorage.setItem("riparia", JSON.stringify(d)); return id; }
+    const r = ok(await fetch(await dbUrl("/markers"), { method:"POST", body:JSON.stringify(m) }));
+    return (await r.json()).name;
+  },
+  async update(id, f) {
+    if (!DB_URL) { const d = await this.list(); d[id] = { ...d[id], ...f }; localStorage.setItem("riparia", JSON.stringify(d)); return; }
+    ok(await fetch(await dbUrl("/markers/" + id), { method:"PATCH", body:JSON.stringify(f) }));
+  },
+  async remove(id) {
+    if (!DB_URL) { const d = await this.list(); delete d[id]; localStorage.setItem("riparia", JSON.stringify(d)); return; }
+    ok(await fetch(await dbUrl("/markers/" + id), { method:"DELETE" }));
+  }
+};
+const mine = new Set(JSON.parse(localStorage.getItem("riparia_mine") || "[]"));
+const saveMine = () => localStorage.setItem("riparia_mine", JSON.stringify([...mine]));
+
+/* ---- map ---- */
+const map = L.map("map", { crs:L.CRS.Simple, minZoom:-3, maxZoom:3, zoomSnap:0.25 });
+const img = new Image();
+img.onload = () => {
+  const b = [[0,0],[img.height,img.width]];
+  L.imageOverlay(MAP_IMAGE, b).addTo(map);
+  map.fitBounds(b);
+  buildLabels(img.width, img.height);
+  map.setMaxBounds([[-img.height*0.2,-img.width*0.2],[img.height*1.2,img.width*1.2]]);
+  refresh().then(checkHash); setInterval(refresh, REFRESH_SECONDS * 1000);
+};
+img.onerror = () => $("status").textContent = "Couldn’t load the map image: " + MAP_IMAGE;
+img.src = MAP_IMAGE;
+
+/* ---- UI state ---- */
+let data = {}, activeType = null, busy = false, lastSig = "";
+const hidden = new Set();
+const layer = L.layerGroup().addTo(map);
+const leafletMarkers = {};
+
+/* palette */
+const palette = $("palette");
+Object.entries(TYPES).forEach(([k, t]) => {
+  const b = document.createElement("button");
+  b.dataset.k = k;
+  b.innerHTML = `<span class="mini" data-ico="${k}">${iconHTML(k, lastColor, 22)}</span>${esc(t.label)}`;
+  b.onclick = () => setActive(activeType === k ? null : k);
+  palette.appendChild(b);
+});
+function setActive(k) {
+  activeType = k;
+  [...palette.children].forEach(b => b.classList.toggle("on", b.dataset.k === k));
+  $("map").classList.toggle("placing", !!k);
+  const bn = $("banner");
+  bn.style.display = k ? "block" : "none";
+  if (k) bn.textContent = "Click the map to place: " + TYPES[k].label + "  (Esc to stop)";
+  if (k && innerWidth <= 640) $("side").classList.add("hidden");
+}
+document.addEventListener("keydown", e => { if (e.key === "Escape") { setActive(null); map.closePopup(); } });
+$("toggle").onclick = () => { $("side").classList.toggle("hidden"); setTimeout(() => map.invalidateSize(), 50); };
+
+/* legend (show/hide) */
+function renderLegend() {
+  const counts = {}; Object.values(data).forEach(m => counts[m.type] = (counts[m.type] || 0) + 1);
+  $("legend").innerHTML = "";
+  Object.entries(TYPES).forEach(([k, t]) => {
+    const c = document.createElement("div");
+    c.className = "chip" + (hidden.has(k) ? " off" : "");
+    c.innerHTML = `<span class="mini" style="width:18px;height:18px">${iconHTML(k, lastColor, 18)}</span>${esc(t.label)} <small>${counts[k] || 0}</small>`;
+    c.onclick = () => { hidden.has(k) ? hidden.delete(k) : hidden.add(k); render(); };
+    $("legend").appendChild(c);
+  });
+}
+$("allOn").onclick = () => { hidden.clear(); render(); };
+$("allOff").onclick = () => { Object.keys(TYPES).forEach(k => hidden.add(k)); render(); };
+$("search").oninput = () => renderList();
+
+/* normalise old data */
+function norm(m) { return { ...m, type: TYPES[m.type] ? m.type : "dot", color: okColor(m.color || "#999999") }; }
+
+function popupHTML(id, m) {
+  const canDel = canEdit() && !id.startsWith("p_");
+  return `<b>${esc(TYPES[m.type].label)}: ${esc(m.title)}</b>` + (m.note ? `<br>${esc(m.note)}` : "") +
+    (canDel ? `<br><button onclick="editMarker('${esc(id)}')">✏️ Edit</button> <button onclick="delMarker('${esc(id)}')">🗑 Delete</button>` : "");
+}
+
+function render() {
+  layer.clearLayers();
+  Object.keys(leafletMarkers).forEach(k => delete leafletMarkers[k]);
+  Object.entries(data).forEach(([id, raw]) => {
+    const m = norm(raw);
+    if (hidden.has(m.type)) return;
+    const icon = L.divIcon({ className:"", html:`<div class="pin">${iconHTML(m.type, m.color, 30)}</div>`, iconSize:[30,30], iconAnchor:[15,15] });
+    const mk = L.marker([m.y, m.x], { icon, draggable: canEdit() && !id.startsWith("p_") }).bindPopup(popupHTML(id, m)).addTo(layer);
+    mk.on("dragstart", () => busy = true);
+    mk.on("dragend", async ev => {
+      const ll = ev.target.getLatLng();
+      try { await store.update(id, { x:ll.lng, y:ll.lat }); } catch (e) { alert("Couldn’t move it. Are you signed in as the owner?"); }
+      busy = false; lastSig = ""; refresh();
+    });
+    leafletMarkers[id] = mk;
+  });
+  renderLegend(); renderList();
+  $("status").textContent = Object.keys(data).length + " markers" + (DB_URL ? "" : " (shared via markers.json + links; live sharing needs DB_URL)");
+}
+
+function renderList() {
+  const q = $("search").value.toLowerCase().trim();
+  const ul = $("list"); ul.innerHTML = "";
+  Object.entries(data).map(([id, m]) => [id, norm(m)])
+    .filter(([id, m]) => !hidden.has(m.type) && (!q || (m.title + " " + (m.note || "") + " " + TYPES[m.type].label).toLowerCase().includes(q)))
+    .sort((a, b) => (b[1].t || 0) - (a[1].t || 0))
+    .forEach(([id, m]) => {
+      const li = document.createElement("li");
+      li.innerHTML = `<span class="mini">${iconHTML(m.type, m.color, 22)}</span><span class="t">${esc(m.title)}<br><span class="k">${esc(TYPES[m.type].label)}</span></span>`;
+      li.onclick = () => { map.setView([m.y, m.x], Math.max(map.getZoom(), 0.5)); leafletMarkers[id] && leafletMarkers[id].openPopup(); if (innerWidth <= 640) $("side").classList.add("hidden"); };
+      ul.appendChild(li);
+    });
+}
+
+let published = {}, publishedLoaded = false;
+async function loadPublished() {
+  publishedLoaded = true;
+  try {
+    const r = await fetch("markers.json?v=" + Date.now()); if (!r.ok) return;
+    const j = await r.json(); (Array.isArray(j) ? j : Object.values(j)).forEach((m, i) => published["p_" + i] = m);
+  } catch (e) {}
+}
+async function refresh() {
+  try { if (!publishedLoaded) await loadPublished(); const nd = { ...published, ...(await store.list()) }, sig = JSON.stringify(nd);
+    if (sig !== lastSig && !busy) { lastSig = sig; data = nd; render(); } }
+  catch (e) { $("status").textContent = "Couldn’t reach the database."; }
+}
+window.delMarker = async id => {
+  if (!confirm("Delete this marker?")) return;
+  try { await store.remove(id); } catch (e) { alert("Couldn’t delete. Are you signed in as the owner?"); return; }
+  map.closePopup(); lastSig = ""; refresh();
+};
+
+/* ---- placing ---- */
+map.on("click", e => {
+  if (!activeType || !canEdit()) return;
+  const type = activeType, t = TYPES[type];
+  const colorRow = type === "dot" ? `<label>Color <input type="color" id="f_color" value="${okColor(lastColor)}"></label><br>` : "";
+  const form = `<div class="popup"><b>${esc(t.label)}</b>
+    <input type="text" id="f_title" placeholder="What is it? (e.g. Big iron deposit)" maxlength="60">
+    <textarea id="f_note" placeholder="Notes (optional)" maxlength="200" rows="2"></textarea>
+    ${colorRow}<button id="f_save">Save marker</button></div>`;
+  const pop = L.popup().setLatLng(e.latlng).setContent(form).openOn(map);
+  setTimeout(() => {
+    const ti = $("f_title"); ti && ti.focus();
+    $("f_save").onclick = async () => {
+      const title = $("f_title").value.trim();
+      if (!title) { $("f_title").focus(); return; }
+      const color = type === "dot" ? okColor($("f_color").value) : "";
+      if (color) { lastColor = color; localStorage.setItem("riparia_color", color); document.querySelector('[data-ico="dot"]').innerHTML = iconHTML("dot", color, 22); }
+      const m = { x:e.latlng.lng, y:e.latlng.lat, type, title, note:$("f_note").value.trim(), color, t:Date.now() };
+      try { await store.add(m); } catch (err) { alert("Couldn’t save. Are you signed in as the owner?"); return; }
+      map.closePopup(pop); lastSig = ""; refresh();
+    };
+  }, 0);
+});
+
+/* ---- place names (toggle) ---- */
+map.createPane("labels"); map.getPane("labels").style.zIndex = 450; map.getPane("labels").style.pointerEvents = "none";
+const labelLayer = L.layerGroup();
+let showNames = localStorage.getItem("riparia_names") !== "off", fitZoom = 0;
+function buildLabels(w, h) {
+  fitZoom = map.getZoom();
+  POIS.forEach(p => L.marker([h * (1 - p.y), w * p.x], { pane:"labels", interactive:false, keyboard:false,
+    icon:L.divIcon({ className:"", html:`<div class="poi">${esc(p.n)}</div>`, iconSize:[0,0] }) }).addTo(labelLayer));
+  sizeLabels(); applyNames();
+}
+function sizeLabels() {
+  const px = Math.max(11, Math.min(30, 14 * Math.pow(1.35, map.getZoom() - fitZoom)));
+  document.getElementById("map").style.setProperty("--lbl", px.toFixed(1) + "px");
+}
+function applyNames() {
+  showNames ? labelLayer.addTo(map) : map.removeLayer(labelLayer);
+  $("namesBtn").classList.toggle("on", showNames);
+}
+map.on("zoomend", sizeLabels);
+$("namesBtn").onclick = () => { showNames = !showNames; localStorage.setItem("riparia_names", showNames ? "on" : "off"); applyNames(); };
+
+/* ---- save & share ---- */
+$("shareNote").textContent = DB_URL
+  ? "Everyone sees these markers live; only the owner can change them. Export makes a backup file."
+  : "Export saves a markers.json file. Put it next to this page on your host and everyone sees those markers. Copy link shares your markers in a link.";
+if (DB_URL) $("linkBtn").style.display = "none";
+
+const mkKey = m => (+m.x).toFixed(1) + "," + (+m.y).toFixed(1) + "|" + m.title;
+async function addMany(arr) {
+  const have = new Set(Object.values(data).map(mkKey)); let n = 0;
+  for (const m of arr) {
+    if (!m || !isFinite(m.x) || !isFinite(m.y) || !m.title) continue;
+    const clean = { x:+m.x, y:+m.y, type:TYPES[m.type] ? m.type : "dot", title:String(m.title).slice(0, 60),
+                    note:String(m.note || "").slice(0, 200), color:okColor(m.color || "#999999"), t:+m.t || Date.now() };
+    const k = mkKey(clean); if (have.has(k)) continue; have.add(k);
+    mine.add(await store.add(clean)); n++;
+  }
+  saveMine(); await refresh(); return n;
+}
+
+$("exportBtn").onclick = () => {
+  const arr = Object.values(data).map(({ x, y, type, title, note, color, t }) => ({ x, y, type, title, note, color, t }));
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(arr, null, 1)], { type:"application/json" }));
+  a.download = "markers.json"; a.click(); URL.revokeObjectURL(a.href);
+};
+$("importBtn").onclick = () => $("importFile").click();
+$("importFile").onchange = async e => {
+  const f = e.target.files[0]; if (!f) return;
+  try {
+    const j = JSON.parse(await f.text());
+    const n = await addMany(Array.isArray(j) ? j : Object.values(j));
+    alert("Imported " + n + " new marker" + (n === 1 ? "" : "s") + ".");
+  } catch (err) { alert("That file couldn’t be read as a markers file."); }
+  e.target.value = "";
+};
+
+async function enc(str) {
+  let u8 = new TextEncoder().encode(str), mode = "p";
+  if (window.CompressionStream) {
+    u8 = new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new CompressionStream("deflate-raw"))).arrayBuffer()); mode = "z";
+  }
+  let bin = ""; u8.forEach(b => bin += String.fromCharCode(b));
+  return mode + btoa(bin).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
+}
+async function dec(s) {
+  let b = s.slice(1).replace(/-/g, "+").replace(/_/g, "/"); while (b.length % 4) b += "=";
+  let u8 = Uint8Array.from(atob(b), c => c.charCodeAt(0));
+  if (s[0] === "z") u8 = new Uint8Array(await new Response(new Blob([u8]).stream().pipeThrough(new DecompressionStream("deflate-raw"))).arrayBuffer());
+  return new TextDecoder().decode(u8);
+}
+$("linkBtn").onclick = async () => {
+  const rows = Object.values(data).map(m => [+(+m.x).toFixed(1), +(+m.y).toFixed(1), m.type, m.title, m.note || "", m.color || ""]);
+  if (!rows.length) { alert("There are no markers to share yet."); return; }
+  const url = location.href.split("#")[0] + "#m=" + await enc(JSON.stringify(rows));
+  try { await navigator.clipboard.writeText(url); alert("Link copied!" + (url.length > 1800 ? "\n\nIt’s long (" + url.length + " characters), so chat apps may cut it off. For lots of markers, use Export instead." : "")); }
+  catch (e) { prompt("Copy this link:", url); }
+};
+async function checkHash() {
+  if (!location.hash.startsWith("#m=") || !canEdit()) return;
+  try {
+    const rows = JSON.parse(await dec(location.hash.slice(3)));
+    const arr = rows.map(r => ({ x:r[0], y:r[1], type:r[2], title:r[3], note:r[4], color:r[5] }));
+    if (confirm("This link contains " + arr.length + " marker" + (arr.length === 1 ? "" : "s") + ". Add them to your map?")) {
+      const n = await addMany(arr); alert("Added " + n + " new marker" + (n === 1 ? "" : "s") + ".");
+    }
+  } catch (e) { alert("That share link couldn’t be read."); }
+  history.replaceState(null, "", location.href.split("#")[0]);
+}
+
+/* ---- edit a marker ---- */
+window.editMarker = id => {
+  if (!data[id]) return;
+  const m = norm(data[id]);
+  const opts = Object.entries(TYPES).map(([k, t]) => `<option value="${k}"${k === m.type ? " selected" : ""}>${t.emoji} ${esc(t.label)}</option>`).join("");
+  const form = `<div class="popup"><select id="e_type" style="width:100%;margin:4px 0;padding:5px">${opts}</select>
+    <input type="text" id="e_title" maxlength="60" value="${esc(m.title)}">
+    <textarea id="e_note" maxlength="200" rows="2">${esc(m.note || "")}</textarea>
+    <div id="e_colorRow"><label>Color <input type="color" id="e_color" value="${okColor(m.color)}"></label></div>
+    <button id="e_save">Save changes</button></div>`;
+  L.popup().setLatLng([m.y, m.x]).setContent(form).openOn(map);
+  setTimeout(() => {
+    const showColor = () => $("e_colorRow").style.display = $("e_type").value === "dot" ? "block" : "none";
+    $("e_type").onchange = showColor; showColor();
+    $("e_save").onclick = async () => {
+      const title = $("e_title").value.trim(); if (!title) { $("e_title").focus(); return; }
+      const type = $("e_type").value;
+      const f = { type, title, note:$("e_note").value.trim(), color: type === "dot" ? okColor($("e_color").value) : "" };
+      try { await store.update(id, f); } catch (e) { alert("Couldn’t save. Are you signed in as the owner?"); return; }
+      map.closePopup(); lastSig = ""; refresh();
+    };
+  }, 0);
+};
+
+/* ---- owner login box ---- */
+function renderAuth() {
+  const box = $("authBox");
+  if (!DB_URL) { box.innerHTML = `<div style="color:var(--muted);font-size:12px">Preview mode: markers stay in this browser until you set up DB_URL.</div>`; return; }
+  box.innerHTML = session
+    ? `<div style="font-size:13px">🔓 Signed in as ${esc(session.email)} <button class="link" id="outBtn">Sign out</button></div>`
+    : `<button id="inBtn" style="padding:6px 10px;border-radius:8px;border:1px solid var(--line);background:#2f343c;color:var(--text);cursor:pointer;font:inherit">🔒 Owner login</button>`;
+  if ($("outBtn")) $("outBtn").onclick = () => { session = null; saveSession(); applyPermissions(); };
+  if ($("inBtn")) $("inBtn").onclick = loginModal;
+}
+function applyPermissions() {
+  $("addSection").style.display = canEdit() ? "" : "none";
+  $("importBtn").style.display = canEdit() ? "" : "none";
+  if (!canEdit()) setActive(null);
+  renderAuth(); lastSig = ""; refresh();
+}
+function loginModal() {
+  const o = document.createElement("div");
+  o.style.cssText = "position:fixed;inset:0;z-index:3000;background:#000a;display:flex;align-items:center;justify-content:center";
+  o.innerHTML = `<div style="background:#25292f;padding:18px;border-radius:12px;width:290px;color:#e8eaed"><b>Owner login</b>
+    <input id="l_email" type="email" placeholder="Email" style="width:100%;margin:10px 0 4px;padding:7px">
+    <input id="l_pw" type="password" placeholder="Password" style="width:100%;margin:4px 0;padding:7px">
+    <div id="l_err" style="color:#ff8a80;font-size:13px;min-height:18px"></div>
+    <button id="l_go" style="padding:7px 12px">Sign in</button> <button id="l_x" style="padding:7px 12px">Cancel</button></div>`;
+  document.body.appendChild(o);
+  const go = async () => {
+    if (!FIREBASE_API_KEY) { $("l_err").textContent = "FIREBASE_API_KEY isn’t set in the page yet."; return; }
+    try {
+      const r = await fetch("https://identitytoolkit.googleapis.com/v1/accounts:signInWithPassword?key=" + FIREBASE_API_KEY, { method:"POST",
+        headers:{ "Content-Type":"application/json" }, body:JSON.stringify({ email:$("l_email").value.trim(), password:$("l_pw").value, returnSecureToken:true }) });
+      const j = await r.json(); if (!r.ok) throw new Error("Wrong email or password.");
+      session = { email:j.email, id:j.idToken, refresh:j.refreshToken, exp:Date.now() + (+j.expiresIn) * 1000 }; saveSession();
+      o.remove(); applyPermissions();
+    } catch (e) { $("l_err").textContent = e.message; }
+  };
+  $("l_go").onclick = go; $("l_x").onclick = () => o.remove();
+  o.onkeydown = e => { if (e.key === "Enter") go(); if (e.key === "Escape") o.remove(); };
+  $("l_email").focus();
+}
+applyPermissions();
+</script>
+</body>
+</html>
